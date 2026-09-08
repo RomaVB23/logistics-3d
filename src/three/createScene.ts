@@ -1,11 +1,17 @@
 import * as THREE from 'three'
-import { createContainer } from './createContainer.ts'
+import { createContainer } from './createContainer'
 
-export function createScene(host: HTMLElement) {
+export type SceneController = {
+  container: THREE.Group
+  view: { distance: number }
+  render: () => void
+  dispose: () => void
+}
+
+export function createScene(host: HTMLElement): SceneController {
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
 
-  // Размер на странице задают классы Tailwind, разрешение — renderer.
   const canvas = document.createElement('canvas')
   canvas.className = 'block h-full w-full'
   canvas.setAttribute('aria-hidden', 'true')
@@ -21,7 +27,6 @@ export function createScene(host: HTMLElement) {
   const container = createContainer()
   scene.add(container.group)
 
-  // Мягкий общий свет и два направленных источника для объёма.
   const ambientLight = new THREE.HemisphereLight('#dbeafe', '#18243d', 2)
   const keyLight = new THREE.DirectionalLight('#ffffff', 4)
   keyLight.position.set(3, 6, 5)
@@ -30,12 +35,29 @@ export function createScene(host: HTMLElement) {
   rimLight.position.set(-4, 2, -4)
   scene.add(ambientLight, keyLight, rimLight)
 
-  // Сфера вокруг модели помогает целиком уместить её в узком canvas.
   const bounds = new THREE.Box3().setFromObject(container.group)
   const sphere = bounds.getBoundingSphere(new THREE.Sphere())
   const viewDirection = new THREE.Vector3(7, 4, 9).normalize()
 
+  // GSAP меняет этот коэффициент. 1 — исходное расстояние, меньше 1 — ближе.
+  const view = { distance: 1 }
+  let fitDistance = 12
+  let disposed = false
+
+  function render() {
+    if (disposed) return
+
+    camera.position
+      .copy(viewDirection)
+      .multiplyScalar(fitDistance * view.distance)
+      .add(sphere.center)
+    camera.lookAt(sphere.center)
+    renderer.render(scene, camera)
+  }
+
   function resize() {
+    if (disposed) return
+
     const width = host.clientWidth
     const height = host.clientHeight
 
@@ -53,55 +75,30 @@ export function createScene(host: HTMLElement) {
     const verticalFov = THREE.MathUtils.degToRad(camera.fov)
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect)
     const limitingFov = Math.min(verticalFov, horizontalFov)
-    const distance = (sphere.radius / Math.sin(limitingFov / 2)) * 1.12
+    fitDistance = (sphere.radius / Math.sin(limitingFov / 2)) * 1.12
 
-    camera.position.copy(viewDirection).multiplyScalar(distance).add(sphere.center)
-    camera.lookAt(sphere.center)
     camera.updateProjectionMatrix()
-    renderer.render(scene, camera)
+    // view.distance сохраняется: resize не сбрасывает состояние прокрутки.
+    render()
   }
 
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(host)
-  // Нужен и при переносе окна на монитор с другой плотностью пикселей.
   window.addEventListener('resize', resize)
   resize()
 
-  let elapsed = 0
-  let lastTime: number | null = null
-
-  function animate(timestamp: number) {
-    if (lastTime !== null) {
-      elapsed += Math.min((timestamp - lastTime) / 1000, 0.05)
-    }
-    lastTime = timestamp
-
-    // Скорость зависит от времени, а не от количества кадров монитора.
-    container.group.rotation.y = Math.sin(elapsed * 0.45) * 0.12
-    renderer.render(scene, camera)
-  }
-
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
-
-  function updateAnimation() {
-    lastTime = null
-    const shouldAnimate = !reducedMotion.matches && !document.hidden
-    renderer.setAnimationLoop(shouldAnimate ? animate : null)
-    renderer.render(scene, camera)
-  }
-
-  reducedMotion.addEventListener('change', updateAnimation)
-  document.addEventListener('visibilitychange', updateAnimation)
-  updateAnimation()
-
-  return function dispose() {
-    renderer.setAnimationLoop(null)
-    resizeObserver.disconnect()
-    window.removeEventListener('resize', resize)
-    reducedMotion.removeEventListener('change', updateAnimation)
-    document.removeEventListener('visibilitychange', updateAnimation)
-    container.dispose()
-    renderer.dispose()
-    canvas.remove()
+  return {
+    container: container.group,
+    view,
+    render,
+    dispose() {
+      if (disposed) return
+      disposed = true
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', resize)
+      container.dispose()
+      renderer.dispose()
+      canvas.remove()
+    },
   }
 }
