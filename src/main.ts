@@ -1,6 +1,7 @@
 import './style.css'
 import { createScene } from './three/createScene'
 import { createScrollAnimation } from './animations/createScrollAnimation'
+import { createPointerAnimation } from './animations/createPointerAnimation'
 import { createSmoothScroll } from './scroll/createSmoothScroll'
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -86,6 +87,7 @@ if (!hero || !sceneElement) {
 
 const scene = createScene(sceneElement)
 const disposeScrollAnimation = createScrollAnimation(hero, scene)
+const disposePointerAnimation = createPointerAnimation(sceneElement, scene)
 
 // Сначала ScrollTrigger создаёт место для закрепления, затем Lenis измеряет страницу.
 const disposeSmoothScroll = createSmoothScroll()
@@ -94,6 +96,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     // Останавливаем прокрутку и анимацию до освобождения ресурсов Three.js.
     disposeSmoothScroll()
+    disposePointerAnimation()
     disposeScrollAnimation()
     scene.dispose()
   })
